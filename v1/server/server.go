@@ -37,7 +37,7 @@ func New( config types.ConfigFile ) ( server Server ) {
 	db , _ := bolt_api.Open( config.BoltDBPath , 0600 , &bolt_api.Options{ Timeout: ( 3 * time.Second ) } )
 	defer db.Close()
 	db.Update( func( tx *bolt_api.Tx ) error {
-		tx.CreateBucketIfNotExists( []byte( "short_link_ids" ) )
+		tx.CreateBucketIfNotExists( []byte( "keys" ) )
 		return nil
 	})
 

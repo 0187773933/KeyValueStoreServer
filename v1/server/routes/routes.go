@@ -12,7 +12,7 @@ import (
 	// uuid "github.com/satori/go.uuid"
 	bolt_api "github.com/boltdb/bolt"
 	types "github.com/0187773933/KeyValueStoreServer/v1/types"
-	utils "github.com/0187773933/KeyValueStoreServer/v1/utils"
+	// utils "github.com/0187773933/KeyValueStoreServer/v1/utils"
 	encryption "github.com/0187773933/encryption/v1/encryption"
 )
 
@@ -24,8 +24,9 @@ func RegisterRoutes( fiber_app *fiber.App , config *types.ConfigFile ) {
 	fiber_app.Get( "/logout" , public_limiter , HandleLogout )
 	fiber_app.Get( "/login" , public_limiter , ServeLoginPage )
 	fiber_app.Post( "/login" , public_limiter , HandleLogin )
-	fiber_app.Get( "/set" , Set )
-	fiber_app.Get( "/:short_link_id" , public_limiter , Get )
+	fiber_app.Get( "/set/:key/:value" , Set )
+	fiber_app.Get( "/set/:key" , Set )
+	fiber_app.Get( "/:key" , public_limiter , Get )
 }
 
 var public_limiter = rate_limiter.New(rate_limiter.Config{
@@ -34,8 +35,8 @@ var public_limiter = rate_limiter.New(rate_limiter.Config{
 	// your remaining configurations...
 	KeyGenerator: func( c *fiber.Ctx ) string {
 		return c.Get( "x-forwarded-for" )
-	},
-	LimitReached: func(c *fiber.Ctx) error {
+	} ,
+	LimitReached: func( c *fiber.Ctx ) error {
 		ip_address := c.IP()
 		log_message := fmt.Sprintf( "%s === %s === %s === PUBLIC RATE LIMIT REACHED !!!" , ip_address , c.Method() , c.Path() );
 		fmt.Println( log_message )
@@ -153,75 +154,63 @@ func Home( context *fiber.Ctx ) ( error ) {
 	})
 }
 
-func short_link_id_exists( db *bolt_api.DB , short_link_id string ) ( result bool ) {
+func key_exists( db *bolt_api.DB , value string ) ( result bool ) {
 	db.View( func( tx *bolt_api.Tx ) error {
-		b := tx.Bucket( []byte( "short_link_ids" ) )
-		v := b.Get( []byte( short_link_id ) )
+		b := tx.Bucket( []byte( "keys" ) )
+		v := b.Get( []byte( value ) )
 		result = v != nil
 		return nil
 	})
 	return
 }
-func get_next_short_link_id( db *bolt_api.DB ) ( result string ) {
-	for {
-		id := utils.GenerateShortLinkID()
-		exists := short_link_id_exists( db , id )
-		if !exists {
-			return id
-		}
-		// If the ID exists, the loop continues and generates a new ID.
-	}
-	return
-}
 
 func Set( context *fiber.Ctx ) ( error ) {
 	if validate_admin_session( context ) == false { return return_error( context , "why" ) }
-	set_url := context.Query( "url" )
+	key := context.Params( "key" )
+	var value string
+	value_param := context.Params( "value" )
+	value_query := context.Query( "value" )
+	if value_param != "" {
+		value = value_param
+	} else if value_query != "" {
+		value = value_query
+	} else {
+		return return_error( context , "why" )
+	}
+	fmt.Println( key , "===" , value )
 	db , _ := bolt_api.Open( GlobalConfig.BoltDBPath , 0600 , &bolt_api.Options{ Timeout: ( 3 * time.Second ) } )
 	defer db.Close()
-	short_link_id := get_next_short_link_id( db )
 	db.Update( func( tx *bolt_api.Tx ) error {
-		bucket := tx.Bucket( []byte( "short_link_ids" ) )
-		bucket.Put( []byte( short_link_id ) , []byte( set_url ) )
+		bucket := tx.Bucket( []byte( "keys" ) )
+		bucket.Put( []byte( key ) , []byte( value ) )
 		return nil
 	})
-	fmt.Println( fmt.Sprintf( "Storing %s as %s" , set_url , short_link_id ) )
-	short_link := fmt.Sprintf( "%s/%s" , GlobalConfig.ServerBaseUrl , short_link_id )
-	// return context.JSON( fiber.Map{
-	// 	"route": "/set" ,
-	// 	"short_link_id": short_link_id ,
-	// 	"set_url": set_url ,
-	// 	"short_link": short_link ,
-	// 	"result": "https://github.com/0187773933/KeyValueStoreServer" ,
-	// })
-	context.Set( "Content-Type" , "text/html" )
-	return context.SendString( short_link )
+	context.Set( "Content-Type" , "text/html; charset=utf-8" )
+	return context.SendString( "👍" )
 }
-
-
 
 func Get( context *fiber.Ctx ) ( error ) {
 	// if validate_admin_session( context ) == false { return return_error( context , "why" ) }
-	short_link_id := context.Params( "short_link_id" )
+	key := context.Params( "key" )
 	db , _ := bolt_api.Open( GlobalConfig.BoltDBPath , 0600 , &bolt_api.Options{ Timeout: ( 3 * time.Second ) } )
 	defer db.Close()
-	var full_url string
+	var value string
 	db.View( func( tx *bolt_api.Tx ) error {
-		b := tx.Bucket( []byte( "short_link_ids" ) )
-		v := b.Get( []byte( short_link_id ) )
+		b := tx.Bucket( []byte( "keys" ) )
+		v := b.Get( []byte( key ) )
 		if v != nil {
-			full_url = string( v )
+			value = string( v )
 		}
 		return nil
 	})
-	fmt.Println( fmt.Sprintf( "%s === %s" , short_link_id , full_url ) )
-	if full_url == "" {
+	fmt.Println( fmt.Sprintf( "%s === %s" , key , value ) )
+	if value == "" {
 		return context.JSON( fiber.Map{
 			"route": "/get" ,
-			"short_link_id": short_link_id ,
-			"full_url": full_url ,
-			"result": "https://github.com/0187773933/KeyValueStoreServer" ,
+			"key": key ,
+			"value": value ,
+			"result": "key not found" ,
 		})
 	}
-	return context.Redirect( full_url )
+	return context.SendString( value )
 }
