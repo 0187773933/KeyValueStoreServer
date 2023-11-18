@@ -26,6 +26,7 @@ func RegisterRoutes( fiber_app *fiber.App , config *types.ConfigFile ) {
 	fiber_app.Post( "/login" , public_limiter , HandleLogin )
 	fiber_app.Get( "/set/:key/:value" , Set )
 	fiber_app.Get( "/set/:key" , Set )
+	fiber_app.Get( "/tk" , NewTempKey )
 	fiber_app.Get( "/:key" , public_limiter , Get )
 }
 
@@ -129,6 +130,13 @@ func validate_admin_session( context *fiber.Ctx ) ( result bool ) {
 			return
 		}
 	}
+	admin_api_key_query := context.Query( "k" )
+	if admin_api_key_query != "" {
+		if admin_api_key_query == GlobalConfig.ServerAPIKey {
+			result = true
+			return
+		}
+	}
 	admin_api_key_header := context.Get( "key" )
 	if admin_api_key_header != "" {
 		if admin_api_key_header == GlobalConfig.ServerAPIKey {
@@ -136,12 +144,10 @@ func validate_admin_session( context *fiber.Ctx ) ( result bool ) {
 			return
 		}
 	}
-	admin_api_key_query := context.Query( "k" )
-	if admin_api_key_query != "" {
-		if admin_api_key_query == GlobalConfig.ServerAPIKey {
-			result = true
-			return
-		}
+	api_temp_key_header := context.Query( "tk" )
+	if api_temp_key_header != "" {
+		result = temp_api_key_exists( api_temp_key_header )
+		return
 	}
 	return
 }
@@ -154,14 +160,37 @@ func Home( context *fiber.Ctx ) ( error ) {
 	})
 }
 
-func key_exists( db *bolt_api.DB , value string ) ( result bool ) {
-	db.View( func( tx *bolt_api.Tx ) error {
-		b := tx.Bucket( []byte( "keys" ) )
+// deletes on true
+func temp_api_key_exists( value string ) ( result bool ) {
+	db , _ := bolt_api.Open( GlobalConfig.BoltDBPath , 0600 , &bolt_api.Options{ Timeout: ( 3 * time.Second ) } )
+	defer db.Close()
+	db.Update( func( tx *bolt_api.Tx ) error {
+		b := tx.Bucket( []byte( "temp-api-keys" ) )
 		v := b.Get( []byte( value ) )
 		result = v != nil
+		fmt.Println( "temp_api_key_exists ===", value , "===" , result )
+		if result == true {
+			b.Delete( []byte( value ) )
+		}
 		return nil
 	})
 	return
+}
+
+func NewTempKey( context *fiber.Ctx ) ( error ) {
+	if validate_admin_session( context ) == false { return return_error( context , "why" ) }
+	temp_key := encryption.SecretBoxGenerateKey( GlobalConfig.ServerTempAPIKeyPrefix )
+	temp_key_string := fmt.Sprintf( "%x" , temp_key )
+	fmt.Println( temp_key_string )
+	db , _ := bolt_api.Open( GlobalConfig.BoltDBPath , 0600 , &bolt_api.Options{ Timeout: ( 3 * time.Second ) } )
+	defer db.Close()
+	db.Update( func( tx *bolt_api.Tx ) error {
+		bucket := tx.Bucket( []byte( "temp-api-keys" ) )
+		bucket.Put( []byte( temp_key_string ) , []byte( "1" ) )
+		return nil
+	})
+	context.Set( "Content-Type" , "text/html; charset=utf-8" )
+	return context.SendString( temp_key_string )
 }
 
 func Set( context *fiber.Ctx ) ( error ) {

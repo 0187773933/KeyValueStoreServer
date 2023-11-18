@@ -16,6 +16,7 @@ type ConfigFile struct {
 	ServerPort string `json:"server_port"`
 	TimeZone string `json:"time_zone"`
 	ServerAPIKey string `json:"server_api_key"`
+	ServerTempAPIKeyPrefix string `json:"server_temp_api_key_prefix"`
 	ServerCookieName string `json:"server_cookie_name"`
 	ServerCookieSecret string `json:"server_cookie_secret"`
 	ServerCookieAdminSecretMessage string `json:"server_cookie_admin_secret_message"`

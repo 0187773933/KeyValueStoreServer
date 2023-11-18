@@ -38,6 +38,7 @@ func New( config types.ConfigFile ) ( server Server ) {
 	defer db.Close()
 	db.Update( func( tx *bolt_api.Tx ) error {
 		tx.CreateBucketIfNotExists( []byte( "keys" ) )
+		tx.CreateBucketIfNotExists( []byte( "temp-api-keys" ) )
 		return nil
 	})
 
